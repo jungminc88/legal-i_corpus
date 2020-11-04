@@ -117,16 +117,11 @@ except (OSError, IOError) as e:
     train_dataloader = DataLoader(train_dataset, batch_size=4, drop_last=True)
     val_dataloader = DataLoader(val_dataset, batch_size=4, drop_last=True)
 '''
-'''
-batch[2].size()
-torch.Size([798, 4])
-batch[0].size()
-torch.Size([798, 4, 512])
-'''
+
 BATCH_SIZE = 1
 
-train_dataloader = DataLoader(train_dataset, batch_size=4,collate_fn=collate_fn, drop_last=True)
-val_dataloader = DataLoader(val_dataset, batch_size=4, collate_fn=collate_fn, drop_last=True)
+train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE,collate_fn=collate_fn, drop_last=True)
+val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, collate_fn=collate_fn, drop_last=True)
 
 #####################################################################
 # Create model
