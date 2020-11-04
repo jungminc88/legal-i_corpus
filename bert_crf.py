@@ -60,8 +60,8 @@ try:
     train_dataset, val_dataset, test_dataset, label_to_id = pickle.load(open("datasets.pkl", "rb"))
     print("dataset ready")
 except (OSError, IOError) as e:
-    directory_train = "/home/cl/jungmin-c/legal-i_corpus/JURIX2019/RSC_sentence_based_original/"
-    directory_test = "/home/cl/jungmin-c/legal-i_corpus/JURIX2019/RSC_sentence_based_original/dev/"
+    directory_train = "/cl/work/jungmin-c/RSC_sentence_based_original/"
+    directory_test = "/cl/work/jungmin-c/RSC_sentence_based_original/dev/"
 
     def get_dataset(directory):
         data = []
