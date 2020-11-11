@@ -19,6 +19,8 @@ from transformers import BertJapaneseTokenizer
 from torch.utils.data import TensorDataset, random_split
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import BertForSequenceClassification, AdamW, BertConfig
+from torch.optim import Adam
+from sklearn import metrics
 #####################################################################
 # Helper functions to make the code more readable.
 
@@ -35,7 +37,7 @@ def log_sum_exp(vecs):
     return max_score + \
         torch.log(torch.sum(torch.exp(vecs - max_score_broadcast),1))
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 ####################################################################
 start_time = time.time()
 ####################################################################
@@ -53,7 +55,9 @@ class Dataset(data.Dataset):
         return self.data[index][0], self.data[index][1], self.data[index][2]
 def collate_fn(batch):
     docs, masks, labels = zip(*batch)
-    padded_docs, padded_masks, padded_labels = pad_sequence(docs), pad_sequence(masks), pad_sequence(labels)
+    padded_docs, padded_masks, padded_labels = pad_sequence(docs, batch_first=True), pad_sequence(masks, batch_first=True), pad_sequence(labels, batch_first=True)
+    #padded_docs, padded_masks, padded_labels = pad_sequence(docs), pad_sequence(masks), pad_sequence(labels)
+
     return padded_docs, padded_masks, padded_labels
 
 try:
@@ -86,7 +90,7 @@ except (OSError, IOError) as e:
                     encoded_dict = tokenizer.encode_plus(
                                         sent,                      
                                         add_special_tokens = True, # Special Tokenの追加
-                                        max_length = 8,           # 文章の長さを固定（Padding/Trancatinating）
+                                        max_length = 512,           # 文章の長さを固定（Padding/Trancatinating）
                                         pad_to_max_length = True,# PADDINGで埋める
                                         return_attention_mask = True,   # Attention maksの作成
                                         return_tensors = 'pt',     #  Pytorch tensorsで返す
@@ -113,12 +117,14 @@ except (OSError, IOError) as e:
     test_dataset, _ = get_dataset(directory_test)
     datasets = (train_dataset, val_dataset, test_dataset, label_to_id)
     pickle.dump( datasets, open( "datasets.pkl", "wb" ) )
-'''
-    train_dataloader = DataLoader(train_dataset, batch_size=4, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=4, drop_last=True)
-'''
 
-BATCH_SIZE = 1
+'''
+batch[2].size()
+torch.Size([798, 4])
+batch[0].size()
+torch.Size([798, 4, 512])
+'''
+BATCH_SIZE = 4
 
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE,collate_fn=collate_fn, drop_last=True)
 val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, collate_fn=collate_fn, drop_last=True)
@@ -137,7 +143,7 @@ class BERT_CRF(nn.Module):
 
         self.bert = BertForSequenceClassification.from_pretrained(
             "cl-tohoku/bert-base-japanese-whole-word-masking", # 日本語Pre trainedモデルの指定
-            num_labels = 9, # ラベル数（今回はBinayなので2、数値を増やせばマルチラベルも対応可）
+            num_labels = 9, # ラベル数
             output_attentions = False, # アテンションベクトルを出力するか
             output_hidden_states = False, # 隠れ層を出力するか
         )
@@ -153,7 +159,7 @@ class BERT_CRF(nn.Module):
         self.transitions.data[:, label_to_id[STOP_LABEL]] = -10000
 
 
-    def _forward_alg(self, feats, device):
+    def _forward_alg(self, b_feats, b_mask, device):
         # Do the forward algorithm to compute the partition function
         init_alphas = torch.full((BATCH_SIZE, self.labelset_size), -10000.)
         # START_TAG has all of the score.
@@ -186,30 +192,35 @@ class BERT_CRF(nn.Module):
         alpha = log_sum_exp(terminal_var)
         return alpha
 
-    def _get_bert_features(self, doc, mask):
-        mini_b_size = 4
+    def _get_bert_features(self, b_doc, b_mask):
         bert_out = []
+        mini_b_size = 4
+        for i in range(BATCH_SIZE):
+            doc, mask = b_doc[i], b_mask[i]
+            mini_out = []
+            mini_dataset = TensorDataset(doc, mask)
+            mini_dataloader = DataLoader(mini_dataset, batch_size=mini_b_size)
+            mini_iter = iter(mini_dataloader)
+            for i in range(len(mini_dataloader)-1):
+                batch = next(mini_iter)
+                tmp_out, = self.bert(input_ids = batch[0], 
+                                    token_type_ids=None, 
+                                    attention_mask=batch[1], 
+                                    labels=None,
+                                    )
+                mini_out.extend(tmp_out)
 
-        mini_dataset = TensorDataset(doc, mask)
-        mini_dataloader = DataLoader(mini_dataset, batch_size=mini_b_size)
-        mini_iter = iter(mini_dataloader)
-        for i in range(len(mini_dataloader)-1):
-            batch = next(mini_iter)
-            tmp_out, = self.bert(input_ids = batch[0], 
+            tmp_out, = self.bert(input_ids = doc[(len(mini_dataloader)-1)*mini_b_size:], 
                                 token_type_ids=None, 
-                                attention_mask=batch[1], 
+                                attention_mask=mask[(len(mini_dataloader)-1)*mini_b_size:], 
                                 labels=None,
                                 )
-            bert_out.extend(tmp_out)
-
-        tmp_out, = self.bert(input_ids = doc[(len(mini_dataloader)-1)*mini_b_size:], 
-                            token_type_ids=None, 
-                            attention_mask=mask[(len(mini_dataloader)-1)*mini_b_size:], 
-                            labels=None,
-                            )
-        bert_out.extend(tmp_out)           
+            mini_out.extend(tmp_out)           
+            mini_out = torch.stack(mini_out)
+            mini_out = mini_out.unsqueeze(1)
+            bert_out.append(mini_out)
         bert_out = torch.stack(bert_out)
-        bert_out = bert_out.unsqueeze(1)
+
         return bert_out
 
     def _score_doc(self, feats, labels):
@@ -223,13 +234,13 @@ class BERT_CRF(nn.Module):
         score = score + self.transitions[self.label_to_id[STOP_LABEL], labels[-1]]
         return score
 
-    def neg_log_likelihood(self, doc, mask, labels):
-        feats = self._get_bert_features(doc, mask)
-        #print(feats.shape)#[407,4,9]
-        forward_score = self._forward_alg(feats,device)
+    def neg_log_likelihood(self, b_doc, b_mask, b_labels):
+        b_feats = self._get_bert_features(b_doc, b_mask)
+        #print(b_feats.shape)#[4,407,9]
+        b_forward_score = self._forward_alg(b_feats, b_mask, device)
         #print(forward_score)# [4]
-        gold_score = self._score_doc(feats, labels)
-        return forward_score - gold_score
+        b_gold_score = self._score_doc(b_feats, b_labels)
+        return b_forward_score - b_gold_score
         #[4]
 
     def _viterbi_decode(self, feats, device):
@@ -271,13 +282,12 @@ class BERT_CRF(nn.Module):
         assert start == self.label_to_id[START_LABEL]  # Sanity check
         best_path.reverse()
         return path_score, best_path
-    def forward(self, doc, mask):  
+    def forward(self, b_doc, b_mask):  
         # Get the emission scores from the BiLSTM
-        bert_feats = self._get_bert_features(doc, mask).to(device)
-        #print("lstm_feats is "+ str(lstm_feats.size))#
+        b_bert_feats = self._get_bert_features(b_doc, b_mask).to(device)
         # Find the best path, given the features.
-        score, label_seq = self._viterbi_decode(bert_feats,device)
-        return score, label_seq
+        b_score, b_label_seq = self._viterbi_decode(b_bert_feats,device)
+        return b_score, b_label_seq
 
 #####################################################################
 # Run training
@@ -292,14 +302,15 @@ HIDDEN_DIM = 4
 model = BERT_CRF(label_to_id, EMBEDDING_DIM, HIDDEN_DIM)
 model = model.to(device)
 
-optimizer = optim.SGD(model.parameters(), lr=0.01, weight_decay=1e-4)
+optimizer = optim.SGD([param for name, param in model.named_parameters() if not name.startswith('bert.bert')], lr=0.01, weight_decay=1e-4)
 
 
 
 for epoch in range(1):
     #iterator = iter(train_dataloader)
     #for step, (docs, tagsets) in enumerate(iterator):
-    for doc, mask, labels in train_dataset:
+    print("starting epoch {}".format(epoch))
+    for doc, mask, labels in train_dataloader:
 
         doc = doc.to(device)
         mask = mask.to(device)
@@ -321,8 +332,16 @@ for epoch in range(1):
 
 print("---%s seconds ---" % (time.time() - start_time))
 
-check = test_dataset[0][0]
-check_mask = test_dataset[0][1]
-check = check.to(device)
-check_mask = check_mask.to(device)
-print(model(check))
+for input in test_dataset:
+    doc, mask = input[0].to(device), input[1].to(device)
+    _, pred = model(doc,mask)
+    pred = torch.tensor(pred)
+    pred
+    true = input[2]
+    print("F1(macro) is {}; F1(weighted) is {}".format(metrics.f1_score(true, pred, average= 'macro'), metrics.f1_score(true, pred, average= 'weighted')))
+    print("accuracy is {}".format(metrics.accuracy_score(true,pred)))
+
+
+    
+
+
