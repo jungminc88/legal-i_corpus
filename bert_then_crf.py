@@ -44,18 +44,7 @@ start_time = time.time()
 tokenizer = BertJapaneseTokenizer.from_pretrained('cl-tohoku/bert-base-japanese-whole-word-masking')
 
 
-# prepare datasets
-class Dataset(data.Dataset):
-    def __init__(self, o_data):
-        self.data = o_data
-    def __len__(self):
-        return len(self.data)
-    def __getitem__(self,index):
-        return self.data[index][0], self.data[index][1], self.data[index][2]
-def collate_fn(batch):
-    docs, masks, labels = zip(*batch)
-    padded_docs, padded_masks, padded_labels = pad_sequence(docs), pad_sequence(masks), pad_sequence(labels)
-    return padded_docs, padded_masks, padded_labels
+
 
 try:
     train_dataset, val_dataset, test_dataset, label_to_id = pickle.load(open("datasets.pkl", "rb"))
@@ -63,7 +52,18 @@ try:
 except (OSError, IOError) as e:
     directory_train = "/cl/work/jungmin-c/RSC_sentence_based_original/"
     directory_test = "/cl/work/jungmin-c/RSC_sentence_based_original/dev/"
-
+    # prepare datasets
+    class Dataset(data.Dataset):
+        def __init__(self, o_data):
+            self.data = o_data
+        def __len__(self):
+            return len(self.data)
+        def __getitem__(self,index):
+            return self.data[index][0], self.data[index][1], self.data[index][2]
+    def collate_fn(batch):
+        docs, masks, labels = zip(*batch)
+        padded_docs, padded_masks, padded_labels = pad_sequence(docs), pad_sequence(masks), pad_sequence(labels)
+        return padded_docs, padded_masks, padded_labels
     def get_dataset(directory):
         data = []
         label_to_id = {'BACKGROUND': 6, 'CONCLUSION': 1, 'FACT': 2, 'FRAMING-main': 3, 'FRAMING-sub': 4, 'IDENTIFYING': 5, 'OTHER': 0}
