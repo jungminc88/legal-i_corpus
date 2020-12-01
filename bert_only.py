@@ -57,8 +57,7 @@ def get_dataset(path):
     # データセットクラスの作成
     dataset = TensorDataset(input_ids, attention_masks, labels)
     return dataset
-#simplification
-#unsupervised summarization
+
 try:
     train_dataloader, test_dataloader = pickle.load(open("dataloaders.pkl", "rb"))
     print("skipping dataloader setup")
@@ -116,9 +115,7 @@ except Exception:
 # 最適化手法の設定
 optimizer = torch.optim.Adam([param for name, param in model.named_parameters() if not name.startswith('bert.bert')], lr=2e-5)
 #optimizer = optim.SGD([param for name, param in model.named_parameters() if not name.startswith('bert.bert')], lr=0.01, weight_decay=1e-4)
-#error in the optimizer
-#learning rate 
-#use plain adam
+
 
 # 訓練パートの定義
 def train(model):
@@ -148,9 +145,9 @@ for epoch in range(1):
     train_loss_.append(train_loss)
 print(train_loss_)
 
-"""
-torch.save(model.state_dict(), model_path)
-"""
+
+#torch.save(model.state_dict(), model_path)
+
 
 model.eval()
 Pred = list()
