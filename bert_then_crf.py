@@ -42,9 +42,9 @@ start_time = time.time()
 ####################################################################
 
 tokenizer = BertJapaneseTokenizer.from_pretrained('cl-tohoku/bert-base-japanese-whole-word-masking')
+
+
 # prepare datasets
-
-
 class Dataset(data.Dataset):
     def __init__(self, o_data):
         self.data = o_data
@@ -56,7 +56,7 @@ def collate_fn(batch):
     docs, masks, labels = zip(*batch)
     padded_docs, padded_masks, padded_labels = pad_sequence(docs), pad_sequence(masks), pad_sequence(labels)
     return padded_docs, padded_masks, padded_labels
-"""
+
 try:
     train_dataset, val_dataset, test_dataset, label_to_id = pickle.load(open("datasets.pkl", "rb"))
     print("dataset ready")
@@ -87,7 +87,7 @@ except (OSError, IOError) as e:
                     encoded_dict = tokenizer.encode_plus(
                                         sent,                      
                                         add_special_tokens = True, # Special Tokenの追加
-                                        max_length = 16,           # 文章の長さを固定（Padding/Trancatinating）
+                                        max_length = 512,           # 文章の長さを固定（Padding/Trancatinating）
                                         pad_to_max_length = True,# PADDINGで埋める
                                         return_attention_mask = True,   # Attention maksの作成
                                         return_tensors = 'pt',     #  Pytorch tensorsで返す
@@ -105,23 +105,15 @@ except (OSError, IOError) as e:
 
     from torch.utils.data import TensorDataset, random_split
     from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-    train_val_dataset, label_to_id = get_dataset(directory_train)
-    # 90%地点のIDを取得
-    train_size = int(0.9 * len(train_val_dataset))
-    val_size = len(train_val_dataset) - train_size
-
-    train_dataset, val_dataset = random_split(train_val_dataset, [train_size, val_size])
+    train_dataset, label_to_id = get_dataset(directory_train)
     test_dataset, _ = get_dataset(directory_test)
-    datasets = (train_dataset, val_dataset, test_dataset, label_to_id)
-    pickle.dump( datasets, open( "datasets.pkl", "wb" ) )
 
     train_dataloader = DataLoader(train_dataset, batch_size=4, drop_last=True)
     val_dataloader = DataLoader(val_dataset, batch_size=4, drop_last=True)
-
-"""
-BATCH_SIZE = 1
-train_dataloader, test_dataloader = pickle.load(open("dataloaders.pkl", "rb"))
-train_dataset, val_dataset, test_dataset, label_to_id = pickle.load(open("datasets.pkl", "rb"))
+    dataloaders = (train_dataloader, val_dataloader, label_to_id)
+    pickle.dump(dataloaders,open("dataloaders.pkl", "wb))
+    
+train_dataloader, val_dataloader, label_to_id = pickle.load(open("dataloaders.pkl", "rb"))
 
 
 #####################################################################
@@ -129,10 +121,10 @@ train_dataset, val_dataset, test_dataset, label_to_id = pickle.load(open("datase
 
 model_path = 'saved_model'
 bert_model = BertForSequenceClassification.from_pretrained(
-    "cl-tohoku/bert-base-japanese-whole-word-masking", # 日本語Pre trainedモデルの指定
-    num_labels = 7, # ラベル数（今回はBinayなので2、数値を増やせばマルチラベルも対応可）
-    output_attentions = False, # アテンションベクトルを出力するか
-    output_hidden_states = True # 隠れ層を出力するか
+    "cl-tohoku/bert-base-japanese-whole-word-masking", 
+    num_labels = 7, 
+    output_attentions = False, 
+    output_hidden_states = True 
 )
 bert_model = nn.DataParallel(bert_model)
 bert_model.cuda()
