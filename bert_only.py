@@ -92,7 +92,7 @@ except (OSError, IOError) as e:
     pickle.dump( dataloaders, open( "dataloaders.pkl", "wb" ) )
 
 
-from transformers import BertForSequenceClassification, AdamW, BertConfig
+from transformers import BertForSequenceClassification, BertConfig
 
 # BertForSequenceClassification 学習済みモデルのロード
 
@@ -146,7 +146,7 @@ for epoch in range(1):
 print(train_loss_)
 
 
-#torch.save(model.state_dict(), model_path)
+torch.save(model.state_dict(), model_path)
 
 
 model.eval()
@@ -176,4 +176,3 @@ print(metrics.precision_recall_fscore_support(Gold, Pred, average='micro'))
 print(metrics.precision_recall_fscore_support(Gold, Pred, average='weighted'))
 
 print("--- %s seconds ---" % (time.time() - start_time))
-#weight_decay
